@@ -1,0 +1,17 @@
+name: PdM
+
+channels:
+  - defaults
+  - conda-forge
+
+dependencies:
+  - python=3.8.10
+  - pip
+
+  # Data
+  - numpy
+  - pandas
+  - pyarrow
+
+  # Machine Learning
+  - scikit-learn
