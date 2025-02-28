@@ -1,4 +1,4 @@
-name: PdM
+name: predictive-maintenance
 
 channels:
   - defaults
