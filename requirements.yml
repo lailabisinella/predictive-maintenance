@@ -16,3 +16,4 @@ dependencies:
   # Machine Learning
   - scikit-learn
   - imbalanced-learn
+  - tensorflow
