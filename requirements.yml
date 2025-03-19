@@ -16,11 +16,3 @@ dependencies:
   # Machine Learning
   - scikit-learn
   - imbalanced-learn
-  - tensorflow
-
-  # Data Visualisation
-  - matplotlib
-  - seaborn
-
-  # Website
-  - flask
