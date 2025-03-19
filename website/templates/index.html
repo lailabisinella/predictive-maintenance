@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Alert_11 Prediction</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+  />
+  <style>
+    body {
+      padding: 20px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .chart-container {
+      flex-grow: 1; /* Makes chart take most of the height */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    canvas {
+      width: 100% !important; /* Make canvas width match table */
+      height: 60vh !important; /* Give it enough height */
+    }
+    table {
+      flex-grow: 0.4;
+    } /* Allows table to take up the bottom part */
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 class="text-center">Live Alert_11 Prediction</h2>
+    <div class="chart-container">
+      <canvas id="predictionChart"></canvas>
+    </div>
+
+    <h3 class="mt-4">Feature Values for Last Actual Alert_11</h3>
+    <table class="table table-bordered mt-3">
+      <thead>
+        <tr id="featureTableHead"></tr>
+      </thead>
+      <tbody>
+        <tr id="featureTableBody"></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const ctx = document.getElementById('predictionChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Actual Alert_11',
+            borderColor: 'blue',
+            data: [],
+            fill: false
+          },
+          {
+            label: 'Predicted Alert_11',
+            borderColor: 'red',
+            data: [],
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            title: { display: true, text: 'Time (HH:MM:SS)' }
+          },
+          y: {
+            title: { display: true, text: 'Alert_11 Value' }
+          }
+        }
+      }
+    });
+
+    // Open SSE connection
+    const eventSource = new EventSource('/stream');
+
+    eventSource.onmessage = function (event) {
+      // Parse incoming data
+      const data = JSON.parse(event.data);
+
+      // If the "end" flag is present, we've reached the 15-minute limit
+      if (data.end) {
+        alert('15 minutes prediction ended');
+        eventSource.close();
+        return;
+      }
+
+      // Otherwise, this is a normal data point
+      chart.data.labels.push(data.time_label);
+      chart.data.datasets[0].data.push(data.actual);
+      chart.data.datasets[1].data.push(data.predicted);
+      chart.update();
+
+      // Update the feature table
+      updateFeatureTable(data.features);
+    };
+
+    function updateFeatureTable(features) {
+      const tableHead = document.getElementById('featureTableHead');
+      const tableBody = document.getElementById('featureTableBody');
+      tableHead.innerHTML = '';
+      tableBody.innerHTML = '';
+
+      for (const key in features) {
+        let th = document.createElement('th');
+        th.textContent = key;
+        tableHead.appendChild(th);
+
+        let td = document.createElement('td');
+        td.textContent = features[key];
+        tableBody.appendChild(td);
+      }
+    }
+  </script>
+</body>
+</html>
