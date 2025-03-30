@@ -3,132 +3,192 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Live Alert_11 Prediction</title>
+  <title>Wrapper Machine Live Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-  />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
   <style>
-    body {
-      padding: 20px;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    .container {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-    .chart-container {
-      flex-grow: 1; /* Makes chart take most of the height */
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    canvas {
-      width: 100% !important; /* Make canvas width match table */
-      height: 60vh !important; /* Give it enough height */
-    }
-    table {
-      flex-grow: 0.4;
-    } /* Allows table to take up the bottom part */
+    body { font-family: 'Inter', sans-serif; font-size: 24px; background-color: #f5f5f5; color: #333; }
+    .container-fluid { padding: 2rem 3rem; }
+    h1, h2, h3 { color: #222; font-weight: 700; }
+    .card { background: #ffffff; border-radius: 12px; border: 1px solid #ddd; box-shadow: 0 2px 10px rgba(0,0,0,0.05); padding: 2rem; margin-bottom: 2.5rem; }
+    canvas { width: 100% !important; height: 60vh !important; }
+    .table { font-size: 22px; }
+    .alert-warning { background-color: #fff4e5; border-left: 5px solid #ffa726; color: #8a4b00; font-size: 22px; padding: 1.5rem; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h2 class="text-center">Live Alert_11 Prediction</h2>
-    <div class="chart-container">
+  <div class="container-fluid">
+    <div class="dashboard-header text-center mb-4">
+      <h1>Wrapper Machine Health Dashboard</h1>
+      <p class="text-muted">🕒 Real-time prediction of machine breakdowns using LSTM</p>
+    </div>
+
+    <div class="card">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">📈 Live Prediction Chart</h3>
+        <div>
+          <label for="windowSize" class="me-2">Window Size:</label>
+          <select id="windowSize" class="form-select d-inline-block w-auto">
+            <option value="20">20</option>
+            <option value="40" selected>40</option>
+            <option value="60">60</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
       <canvas id="predictionChart"></canvas>
     </div>
 
-    <h3 class="mt-4">Feature Values for Last Actual Alert_11</h3>
-    <table class="table table-bordered mt-3">
-      <thead>
-        <tr id="featureTableHead"></tr>
-      </thead>
-      <tbody>
-        <tr id="featureTableBody"></tr>
-      </tbody>
-    </table>
+    <div class="card">
+      <h3>📊 Current Feature Readings</h3>
+      <table class="table table-striped">
+        <thead><tr id="featureTableHead"></tr></thead>
+        <tbody><tr id="featureTableBody"></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3 class="text-danger">⚠️ Feature Deviations Causing Wrong Predictions</h3>
+      <div id="mismatchContainer"></div>
+    </div>
   </div>
 
   <script>
     const ctx = document.getElementById('predictionChart').getContext('2d');
+    let visiblePoints = 40;
+    let chartData = [];
+
     const chart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: [],
         datasets: [
-          {
-            label: 'Actual Alert_11',
-            borderColor: 'blue',
-            data: [],
-            fill: false
-          },
-          {
-            label: 'Predicted Alert_11',
-            borderColor: 'red',
-            data: [],
-            fill: false
-          }
+          { label: 'Actual Status', borderColor: '#2196f3', data: [], fill: false },
+          { label: 'Predicted Status', borderColor: '#f44336', data: [], fill: false }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          tooltip: {
+            titleFont: { size: 30 },
+            bodyFont: { size: 25 },
+            footerFont: { size: 25 },
+            padding: 20,
+            callbacks: {
+              afterBody: function (context) {
+                const index = context[0].dataIndex;
+                const dataPoint = chartData[index + chartData.length - chart.data.labels.length];
+                if (!dataPoint.mismatch) return '';
+                const features = dataPoint.mismatch.features;
+                const zScores = Object.values(features).map(f => f.z_score);
+                const meanZ = (zScores.reduce((a, b) => a + b, 0) / zScores.length).toFixed(2);
+                let extra = `⚠️ Mismatch Detected!\nMean Z-Score: ${meanZ}`;
+                for (const [key, val] of Object.entries(features)) {
+                  extra += `\n${key}: z=${val.z_score.toFixed(2)}`;
+                }
+                return extra;
+              }
+            }
+          },
+          legend: { labels: { color: '#333', font: { size: 23 } } }
+          // Zoom support is now removed
+        },
         scales: {
           x: {
-            title: { display: true, text: 'Time (HH:MM:SS)' }
+            title: { display: true, text: 'Time (HH:MM:SS)', font: { size: 27 } },
+            ticks: { font: { size: 25 } }
           },
           y: {
-            title: { display: true, text: 'Alert_11 Value' }
+            title: { display: true, text: 'Machine Status', font: { size: 27 } },
+            min: 0, max: 1,
+            ticks: {
+              stepSize: 1,
+              callback: value => value === 1 ? 'Breakdown' : 'Normal',
+              font: { size: 25 }
+            }
           }
         }
       }
     });
 
-    // Open SSE connection
+    document.getElementById("windowSize").addEventListener("change", (e) => {
+      visiblePoints = parseInt(e.target.value);
+      const visibleData = chartData.slice(-visiblePoints);
+      chart.data.labels = visibleData.map(d => d.time_label);
+      chart.data.datasets[0].data = visibleData.map(d => d.actual);
+      chart.data.datasets[1].data = visibleData.map(d => d.predicted);
+      chart.update();
+    });
+
     const eventSource = new EventSource('/stream');
-
     eventSource.onmessage = function (event) {
-      // Parse incoming data
       const data = JSON.parse(event.data);
-
-      // If the "end" flag is present, we've reached the 15-minute limit
       if (data.end) {
-        alert('15 minutes prediction ended');
         eventSource.close();
+        alert(data.message);
         return;
       }
 
-      // Otherwise, this is a normal data point
+      chartData.push(data);
+
+      if (chart.data.labels.length >= visiblePoints) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+        chart.data.datasets[1].data.shift();
+      }
+
       chart.data.labels.push(data.time_label);
       chart.data.datasets[0].data.push(data.actual);
       chart.data.datasets[1].data.push(data.predicted);
+
       chart.update();
 
-      // Update the feature table
       updateFeatureTable(data.features);
+      if (data.mismatch) displayMismatch(data.mismatch);
     };
 
     function updateFeatureTable(features) {
-      const tableHead = document.getElementById('featureTableHead');
-      const tableBody = document.getElementById('featureTableBody');
-      tableHead.innerHTML = '';
-      tableBody.innerHTML = '';
-
+      const head = document.getElementById('featureTableHead');
+      const body = document.getElementById('featureTableBody');
+      head.innerHTML = ''; body.innerHTML = '';
       for (const key in features) {
-        let th = document.createElement('th');
-        th.textContent = key;
-        tableHead.appendChild(th);
-
-        let td = document.createElement('td');
-        td.textContent = features[key];
-        tableBody.appendChild(td);
+        head.innerHTML += `<th>${key}</th>`;
+        body.innerHTML += `<td>${parseFloat(features[key]).toFixed(2)}</td>`;
       }
     }
+
+    function displayMismatch(mismatch) {
+      const container = document.getElementById('mismatchContainer');
+      const div = document.createElement('div');
+      div.classList.add('alert', 'alert-warning');
+      const id = `collapse-${Date.now()}`;
+
+      const features = mismatch.features;
+      const zScores = Object.values(features).map(f => f.z_score);
+      const meanZScore = (zScores.reduce((a, b) => a + b, 0) / zScores.length).toFixed(2);
+
+      const details = Object.entries(features).map(([k, v]) =>
+        `<li><strong>${k}</strong>: Value=${v.value.toFixed(2)}, Prediction=${v.mean.toFixed(2)}, Z=${v.z_score.toFixed(2)}</li>`
+      ).join('');
+
+      div.innerHTML = `
+        <p><strong>🕒 Timestamp:</strong> ${mismatch.time}</p>
+        <p><strong>📉 Mean Z-Score:</strong> ${meanZScore}</p>
+        <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#${id}">
+          Show Deviation Details
+        </button>
+        <div id="${id}" class="collapse mt-2">
+          <ul>${details}</ul>
+        </div>
+      `;
+      container.prepend(div);
+    }
   </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

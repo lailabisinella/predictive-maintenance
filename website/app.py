@@ -1,6 +1,5 @@
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, render_template, Response
 import pandas as pd
-import numpy as np
 import tensorflow as tf
 import json
 import time
@@ -56,75 +55,85 @@ missing_features = [col for col in feature_columns if col not in df.columns]
 if missing_features:
     raise ValueError(f"Missing required features in dataset: {missing_features}")
 
-# Split dataset: first 80% for (already) training, last 20% for predictions
+# Split dataset: 80% train, 20% test
 split_index = int(len(df) * 0.8)
 train_data = df.iloc[:split_index].copy()
 test_data = df.iloc[split_index:].copy()
 
-# Compute mean & std from training data only, for normalization
+# Calculate mean and std from training data
 mean = train_data[feature_columns].mean()
 std = train_data[feature_columns].std()
 
-# Normalize test data for LSTM input
+# Normalize test data
 normalized_test_data = test_data.copy()
 normalized_test_data[feature_columns] = (test_data[feature_columns] - mean) / std
 
+def get_top_deviating_features(actual_input, mean, std, top_n=3):
+    deviation = ((actual_input - mean) / std).abs()
+    top_features = deviation.sort_values(ascending=False).head(top_n)
+    result = {}
+    for feature in top_features.index:
+        result[feature] = {
+            "value": float(actual_input[feature]),
+            "mean": float(mean[feature]),
+            "z_score": float(deviation[feature])
+        }
+    return result
+
 def generate_predictions():
-    """
-    Generate predictions on the last 20% of data, simulating real-time streaming.
-    Predict for 15 minutes => 180 intervals (5s each).
-    After sending 180 data points, send a final {"end": true} event.
-    """
-    window_size = 120  # window width used during training
-    shift = 180        # shift used during training (predict next 180 timesteps)
-    max_points = 180   # 15 minutes / 5s per step = 180 data points
+    window_size = 120  # 10 minutes
+    shift = 180        # 15 minutes
+    i = 0
 
-    start_time = time.time()  # for labeling "current time" on x-axis
-
-    # We iterate up to (len(test_data) - window_size - shift) so we can compare to actual values
-    for i in range(len(test_data) - window_size - shift):
-        if i >= max_points:
-            break
-
-        # Prepare sliding window input
+    while i + window_size < len(test_data):
         input_data = normalized_test_data.iloc[i : i + window_size][feature_columns].values
         input_data = input_data.reshape(1, 1, window_size * len(feature_columns))
 
-        # Check feature count matches model input
-        expected_feature_count = model.input_shape[2]
-        if input_data.shape[2] != expected_feature_count:
-            print(f"ERROR: Expected {expected_feature_count} features, got {input_data.shape[2]}")
+        if input_data.shape[2] != model.input_shape[2]:
+            i += 1
             continue
 
-        # Predict (probability of alert_11)
         prob = model.predict(input_data, verbose=0)[0][0]
         predicted_value = 1 if prob >= 0.5 else 0
 
-        # Compare with actual value over the shift horizon
-        alert_11_window = test_data.iloc[i + window_size : i + window_size + shift]['alert_11']
+        if i + window_size + shift <= len(test_data):
+            alert_11_window = test_data.iloc[i + window_size : i + window_size + shift]['alert_11']
+        else:
+            alert_11_window = test_data.iloc[i + window_size :]['alert_11']
+
         actual_value = 1 if alert_11_window.max() == 1 else 0
 
-        # De-normalized (raw) feature values for display
         raw_feature_values = test_data.iloc[i + window_size][feature_columns].to_dict()
+        current_timestamp = test_data.index[i + window_size].strftime("%H:%M:%S")
+        z_score = abs(prob - actual_value)
 
-        # For the chart's x-axis, we label time as HH:MM:SS
-        current_timestamp = start_time + i * 5  # i steps, each 5s
-        time_label = time.strftime("%H:%M:%S", time.localtime(current_timestamp))
+        mismatch_info = None
+        if predicted_value != actual_value:
+            actual_input = pd.Series(test_data.iloc[i + window_size][feature_columns], index=feature_columns)
+            influential_features = get_top_deviating_features(actual_input, mean, std)
+            mismatch_info = {
+                "time": current_timestamp,
+                "z_score": round(z_score, 4),
+                "features": influential_features
+            }
 
         data = {
-            "time_label": time_label,
+            "time_label": current_timestamp,
             "predicted": int(predicted_value),
             "actual": int(actual_value),
+            "z_score": round(z_score, 4),
             "features": raw_feature_values
         }
+
+        if mismatch_info:
+            data["mismatch"] = mismatch_info
+
         yield f"data: {json.dumps(data)}\n\n"
-
-        # Sleep 5 seconds to emulate real-time streaming
         time.sleep(0.5)
+        i += 1
 
-    # After sending 180 points or exhausting the test range:
-    end_data = {"end": True}
-    yield f"data: {json.dumps(end_data)}\n\n"
+    yield f"data: {json.dumps({'end': True, 'message': 'No more data left to predict.'})}\n\n"
+
 
 @app.route('/')
 def index():
@@ -136,5 +145,5 @@ def stream():
 
 if __name__ == "__main__":
     port = 5001
-    print(f"\n🚀 Server running at: http://127.0.0.1:{port}/\n")
+    print(f"\n\U0001F680 Server running at: http://127.0.0.1:{port}/\n")
     app.run(port=port, debug=True)
