@@ -15,7 +15,7 @@ log.setLevel(logging.ERROR)
 tf.get_logger().setLevel("ERROR")
 tf.autograph.set_verbosity(0)
 
-# Load the trained LSTM model
+# Load trained LSTM model
 model_path = "../book/lstm_model.h5"
 model = tf.keras.models.load_model(model_path)
 
@@ -50,23 +50,16 @@ feature_columns = [
     "Lifting speed rotation [M/MIN]"
 ]
 
-# Ensure dataset contains all required features
-missing_features = [col for col in feature_columns if col not in df.columns]
-if missing_features:
-    raise ValueError(f"Missing required features in dataset: {missing_features}")
-
 # Split dataset: 80% train, 20% test
 split_index = int(len(df) * 0.8)
 train_data = df.iloc[:split_index].copy()
-test_data = df.iloc[split_index:].copy()
+prediction_data = df.iloc[split_index:].copy()
 
-# Calculate mean and std from training data
+# Normalise data
 mean = train_data[feature_columns].mean()
 std = train_data[feature_columns].std()
-
-# Normalize test data
-normalized_test_data = test_data.copy()
-normalized_test_data[feature_columns] = (test_data[feature_columns] - mean) / std
+normalised_prediction_data = prediction_data.copy()
+normalised_prediction_data[feature_columns] = (prediction_data[feature_columns] - mean) / std
 
 def get_top_deviating_features(actual_input, mean, std, top_n=3):
     deviation = ((actual_input - mean) / std).abs()
@@ -85,8 +78,8 @@ def generate_predictions():
     shift = 180        # 15 minutes
     i = 0
 
-    while i + window_size < len(test_data):
-        input_data = normalized_test_data.iloc[i : i + window_size][feature_columns].values
+    while i + window_size < len(prediction_data):
+        input_data = normalised_prediction_data.iloc[i : i + window_size][feature_columns].values
         input_data = input_data.reshape(1, 1, window_size * len(feature_columns))
 
         if input_data.shape[2] != model.input_shape[2]:
@@ -96,25 +89,27 @@ def generate_predictions():
         prob = model.predict(input_data, verbose=0)[0][0]
         predicted_value = 1 if prob >= 0.5 else 0
 
-        if i + window_size + shift <= len(test_data):
-            alert_11_window = test_data.iloc[i + window_size : i + window_size + shift]['alert_11']
+        if i + window_size + shift <= len(prediction_data):
+            alert_11_window = prediction_data.iloc[i + window_size : i + window_size + shift]['alert_11']
         else:
-            alert_11_window = test_data.iloc[i + window_size :]['alert_11']
+            alert_11_window = prediction_data.iloc[i + window_size :]['alert_11']
 
         actual_value = 1 if alert_11_window.max() == 1 else 0
 
-        raw_feature_values = test_data.iloc[i + window_size][feature_columns].to_dict()
-        current_timestamp = test_data.index[i + window_size].strftime("%H:%M:%S")
+        raw_feature_values = prediction_data.iloc[i + window_size][feature_columns].to_dict()
+        current_timestamp = prediction_data.index[i + window_size].strftime("%H:%M:%S")
         z_score = abs(prob - actual_value)
 
-        mismatch_info = None
-        if predicted_value != actual_value:
-            actual_input = pd.Series(test_data.iloc[i + window_size][feature_columns], index=feature_columns)
+        alert_info = None
+        if predicted_value == 1 or actual_value == 1:
+            actual_input = pd.Series(prediction_data.iloc[i + window_size][feature_columns], index=feature_columns)
             influential_features = get_top_deviating_features(actual_input, mean, std)
-            mismatch_info = {
+            alert_info = {
                 "time": current_timestamp,
                 "z_score": round(z_score, 4),
-                "features": influential_features
+                "features": influential_features,
+                "predicted": int(predicted_value),
+                "actual": int(actual_value)
             }
 
         data = {
@@ -125,15 +120,14 @@ def generate_predictions():
             "features": raw_feature_values
         }
 
-        if mismatch_info:
-            data["mismatch"] = mismatch_info
+        if alert_info:
+            data["breakdown"] = alert_info
 
         yield f"data: {json.dumps(data)}\n\n"
-        time.sleep(0.5)
+        time.sleep(2)
         i += 1
 
     yield f"data: {json.dumps({'end': True, 'message': 'No more data left to predict.'})}\n\n"
-
 
 @app.route('/')
 def index():
@@ -145,5 +139,5 @@ def stream():
 
 if __name__ == "__main__":
     port = 5001
-    print(f"\n\U0001F680 Server running at: http://127.0.0.1:{port}/\n")
+    print(f"\n🚀 Server running at: http://127.0.0.1:{port}/\n")
     app.run(port=port, debug=True)
