@@ -124,7 +124,7 @@ def generate_predictions():
             data["breakdown"] = alert_info
 
         yield f"data: {json.dumps(data)}\n\n"
-        time.sleep(2)
+        time.sleep(5)
         i += 1
 
     yield f"data: {json.dumps({'end': True, 'message': 'No more data left to predict.'})}\n\n"
